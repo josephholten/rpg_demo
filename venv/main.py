@@ -1,7 +1,8 @@
 import sys
 import time
 import pygame
-
+import pyphen
+import collections
 
 class SpriteInLGroup(pygame.sprite.Sprite):
     def __init__(self, layerd_group: pygame.sprite.AbstractGroup = None, layer: int = 0, groups: list = []):
@@ -11,10 +12,14 @@ class SpriteInLGroup(pygame.sprite.Sprite):
         :param layer: the layer the sprite should be in the layered group
         :param groups: list of aux. groups the sprite should be added to
         """
-        layerd_group = globals()["sprites"] if "sprites" in list(globals().keys()) and layerd_group is None\
-            else layerd_group   # default value that is evaluated at runtime (kind of jank !!)
+        self.layered_group = globals()["sprites"] if "sprites" in list(globals().keys()) and layerd_group is None\
+            else layered_group   # default value that is evaluated at runtime (kind of jank !!)
+        try:
+            assert self.layered_group is not None
+        except AssertionError:
+            print("No variable named 'sprites' for the LayeredGroup and no LayeredGroup provided.") # FIXME: still needs to except
         super().__init__()
-        self.add_to_groups(layerd_group, layer, groups)
+        self.add_to_groups(self.layered_group, layer, groups)
 
     def add_to_groups(self, layered_group=None, layer=0, groups=[]):
         if layered_group is not None:
@@ -60,7 +65,7 @@ class Text(SpriteInLGroup):
 
 class MultiLineText(SpriteInLGroup):
     def __init__(self, text: str="Missing text", rect: pygame.Rect=pygame.Rect(0,0,50,50), line_spacing=None, font: pygame.font.Font=None,
-                 color = (255,255,255), bg_color = (0,0,0), anti_aliased=True, layer=4):
+                 color = (255,255,255), bg_color = (0,0,0), anti_aliased=True, layer=4, hyphen=None):
         """
         :param text: the text to be displayed in one long possibly multiline string
         :param rect: Rect obj to store top, left, width, height coords of the text box
@@ -68,55 +73,106 @@ class MultiLineText(SpriteInLGroup):
         :param bg_color: background color of whole text box
         :param anti_aliased: True/False
         :param layer: int for the layer in LayeredUpdates
+        :param hyphen: the pyphen dic to be used to hyphenate, if left None, then tries to use
         """
-        # TODO: how to handle new lines?, word splitting, single character apearing
-        # right now: newlines just start a new line
+        # TODO: single character apearing, rect should it be max size? how should it handle positioning, a text box?
 
         super().__init__(layer=layer)
         self.text = text
         self.font: pygame.font.Font = font or pygame.font.SysFont(None, 20)
+        self.font_size = self.font.size("")[1]
         self.line_spacing = line_spacing or self.font.get_linesize()//2
-        self.max_font_height = self.font.get_ascent()+self.font.get_descent()
-        #print(self.max_font_height)
         self.image = pygame.Surface((rect.w, rect.h))
         self.image.fill(bg_color)
         self.rect = rect
         self.color = color
         self.bg_color = bg_color
         self.anti_aliased = anti_aliased
+        self.hyphen: pyphen.Pyphen = globals()["hyphen"] if "hyphen" in list(globals().keys()) and hyphen is None \
+            else hyphen  # FIXME: default value that is evaluated at runtime (kind of jank !!)
+        try:
+            assert self.hyphen is not None
+        except AssertionError:
+            print("No variable named 'hyphen' for the pyphen dic and no dic provided.")  # FIXME: still needs to except
 
-        blocks = [line.strip().split(" ") for line in text.strip().splitlines()]  # "a b\nc" --> [['a','b'],['c']]
-        curr_line = [];
-        line_imgs = []
+        curr_line = []  # list of words in the current line
 
-        # TODO: could be neater
-        line_img = lambda line: self.font.render(" ".join(curr_line), self.anti_aliased, self.color, self.bg_color)
-        for words in blocks:  # words = one block
-            for word in words:
-                if self.font.size(word)[0] > self.rect.width:
-                    print(f"word too large for width: {word}. replaced with '|'")
-                    word = "|"
-                if self.font.size(" ".join(curr_line + [word]))[0] > self.rect.width:
-                    line_imgs += [line_img(" ".join(curr_line))]  # max size reached
-                    curr_line = [word]
-                else:
-                    curr_line += [word]
-            line_imgs += [line_img(" ".join(curr_line))]  # \n --> new line
-            curr_line = []
+        # fill line_imgs
+        words = collections.deque(self.text.strip().split(" "))
+        line_imgs = self.render_words(words)
 
+        # build blit_sequence and blit it to the image
         blit_sequence = []
-        for idx, line_img in enumerate(line_imgs):
-            if idx * (self.line_spacing + self.font.size("")[1]) > self.rect.height:
-                print("overfull in y direction")  # TODO: work in progress
+        for idx, render_line in enumerate(line_imgs):
+            if idx * (self.line_spacing + self.font_size) + self.font_size > self.rect.height:
+                print("overfull multilinetext in y direction")  # TODO: work in progress
                 break
-            blit_sequence += [(line_img, pygame.Rect(0, idx * (self.line_spacing + self.font.size("")[1]), 0, 0))]
+            blit_sequence += [(render_line, pygame.Rect(0, idx * (self.line_spacing + self.font_size), 0, 0))]
         self.image.blits(blit_sequence)
 
+
+    #auxiliary methods
+    def too_long(self, line):
+        return self.font.size(line)[0] > self.rect.width
+
+    def get_max_line(self, line: list) -> (str, list):      # line is a list of words, returns line as string and list of words for next line
+        sep, end = " ", ""                                  # concatonate words with space, end with nothing
+        if type(line) is str:
+            line = [line]                                   # if you mistakenly pass it a single word
+        if len(line) == 1:                                  # only one element
+            try:
+                hyphen_idx = line[0].index("-")                      # word already hyphenated, split at hyphenation
+            except ValueError:
+                line = self.hyphen.inserted(*line).split("-")   # so the list should be of the syllables
+            else:
+                split_word = self.get_max_line([line[0][:hyphen_idx]])
+                return split_word[0], [split_word[1][0]+line[0][(hyphen_idx+(1 if split_word[1][0] == "" else 0)):]]
+                # split_word[1] is a one-element list within it the rest of the first word as a string,
+                # take that and the rest of the word second word (if the first word empty, don't preserve hyphen)
+            sep, end = "", "-"                              # concatonate syllables, end with '-'
+        i = len(line)
+        while self.too_long(sep.join(line[:i]) + end):           # line including end is too long
+            if i == 0:                                      # reached first item
+                if sep == "":                               # case of syllables
+                    print(f"syllable '{splitted[0]}' too long in font size {self.font.size('')} "
+                          f"for width of {self.rect.width}, replacing word with '|'")
+                    return ("|", "")                        # single syllable is too long, replace with thin char, return
+                else:
+                    split_word = get_max_line(line[:1])     # single word is too long, split it by recursion
+                    return split_word[0], split_word[1] + line[1:]
+                    # return the first syllable, and add the rest to the rest of the words
+            i -= 1
+        return sep.join(line[:i]) + end, (line[i:] if sep == " " else ["".join(line[i:])])
+        # return the first items concatonated to a string, and the last as a list
+
+    def render_words(self, words):
+        render_line = lambda line: self.font.render(line, self.anti_aliased, self.color, self.bg_color)  # just a alias
+        line_imgs = []  # list of surfaces that each have a line of text rendered onto
+        curr_line = []
+
+        while len(words) > 0:
+            word = words.popleft()  # take the newest word
+            try:
+                i = word.index("\n")  # look for newline chars
+                words.extendleft([word[:i], word[(i + 2):]])  # if found, re-add the words seperately to the queue
+            except ValueError:  # no newline char found
+                if self.too_long(" ".join(curr_line + [word])):  # line is too long
+                    line_to_render, left_overs = self.get_max_line(curr_line + [word])
+                    # spits out maximum lenght of line, and the leftover words for the next line
+                    line_imgs += [render_line(line_to_render)]  # render line, add to the list
+                    words.extendleft(left_overs)  # save leftovers
+                    curr_line = []  # start new line
+                else:
+                    curr_line += [word]  # line not long enough yet, add the word
+        line_imgs += [render_line(" ".join(curr_line))]
+        return line_imgs
 
 # initialization
 pygame.init()
 pygame.font.init()
 pygame.mixer.init()
+text_language = "de_DE"  # TODO: get from text files
+hyphen = pyphen.Pyphen(lang=text_language)
 
 # colors are addressable as strings see https://github.com/pygame/pygame/blob/master/src_py/colordict.py
 
@@ -133,10 +189,11 @@ sprites = pygame.sprite.LayeredUpdates()
 
 #player = Player()
 background = Background(DISPLAY_SIZE)
-#text = Text()
-mlt = MultiLineText(text="Depending on the type of background and antialiasing used, this returns different types of Surfaces. For performance reasons, it is good to know what type of image will be used.", rect=pygame.Rect(0,0,300,300))
-mlt2 = MultiLineText(text="Depending on the type of background and antialiasing used, this returns different types of Surfaces.\nFor performance reasons, it is good to know what type of image will be used.", rect=pygame.Rect(300,0,300,300), color=pygame.Color("red"), bg_color=pygame.Color("blue"))
+hyphen_test = MultiLineText("Dampfschifffahrtsgesellschaft, Aufmerksamkeitsdefizit-Hyperaktivitätsstörung,\n Kraftfahrzeug-Haftpflichtversicherung. Depending on the type of background and antialiasing used, this returns different types of Surfaces.\nFor performance reasons, it is good to know what type of image will be used.",
+                            rect=pygame.Rect(100,0, 100,480))
 
+mlt2 = MultiLineText(text="Depending on the type of background and antialiasing used, this returns different types of Surfaces.\nFor performance reasons, it is good to know what type of image will be used.",
+                     rect=pygame.Rect(300,0,300,300), color=pygame.Color("red"), bg_color=pygame.Color("blue"))
 
 while True:  # Game Loop
     t = time.time()
@@ -159,4 +216,3 @@ while True:  # Game Loop
     if t:=time.time()-t > 1/FPS:
         print(f"WARNING: current FPS is {1/t:.4f}")
     clock.tick(FPS)
-
