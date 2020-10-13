@@ -1,9 +1,8 @@
 import sys
 import time
 import pygame
-import numpy as np
 
-# all sprites
+
 class SpriteInLGroup(pygame.sprite.Sprite):
     def __init__(self, layerd_group: pygame.sprite.AbstractGroup = None, layer: int = 0, groups: list = []):
         """
@@ -45,13 +44,73 @@ class Background(SpriteInLGroup):
 
 
 class Text(SpriteInLGroup):
-    def __init__(self, text: str="Missing text", pos=(0,0), font: pygame.font.Font=None):
-        super().__init__()
+    def __init__(self, text: str="Missing text", pos=(0,0), font: pygame.font.Font=None,
+                 color = (255,255,255), bg_color = (0,0,0), anti_aliased=True, layer=4):
+        super().__init__(layer=layer)  # high layer for now
+        self.text = text
         self.font: pygame.font.Font = font or pygame.font.SysFont(None, 20)
             # short-hand for: font = font if font is not None else pygame...()
             # needs to be janky runtime-evaluated-default because font isn't init'ed yet
         self.image: pygame.Surface = self.font.render(text, True, (0,0,0))
         self.rect: pygame.rect.Rect = self.image.get_rect(topleft=pos)
+        self.color = color
+        self.bg_color = bg_color
+        self.anti_aliased = anti_aliased
+
+
+class MultiLineText(SpriteInLGroup):
+    def __init__(self, text: str="Missing text", rect: pygame.Rect=pygame.Rect(0,0,50,50), line_spacing=None, font: pygame.font.Font=None,
+                 color = (255,255,255), bg_color = (0,0,0), anti_aliased=True, layer=4):
+        """
+        :param text: the text to be displayed in one long possibly multiline string
+        :param rect: Rect obj to store top, left, width, height coords of the text box
+        :param font: Font obj to store font and font size info
+        :param bg_color: background color of whole text box
+        :param anti_aliased: True/False
+        :param layer: int for the layer in LayeredUpdates
+        """
+        # TODO: how to handle new lines?, word splitting, single character apearing
+        # right now: newlines just start a new line
+
+        super().__init__(layer=layer)
+        self.text = text
+        self.font: pygame.font.Font = font or pygame.font.SysFont(None, 20)
+        self.line_spacing = line_spacing or self.font.get_linesize()//2
+        self.max_font_height = self.font.get_ascent()+self.font.get_descent()
+        #print(self.max_font_height)
+        self.image = pygame.Surface((rect.w, rect.h))
+        self.image.fill(bg_color)
+        self.rect = rect
+        self.color = color
+        self.bg_color = bg_color
+        self.anti_aliased = anti_aliased
+
+        blocks = [line.strip().split(" ") for line in text.strip().splitlines()]  # "a b\nc" --> [['a','b'],['c']]
+        curr_line = [];
+        line_imgs = []
+
+        # TODO: could be neater
+        line_img = lambda line: self.font.render(" ".join(curr_line), self.anti_aliased, self.color, self.bg_color)
+        for words in blocks:  # words = one block
+            for word in words:
+                if self.font.size(word)[0] > self.rect.width:
+                    print(f"word too large for width: {word}. replaced with '|'")
+                    word = "|"
+                if self.font.size(" ".join(curr_line + [word]))[0] > self.rect.width:
+                    line_imgs += [line_img(" ".join(curr_line))]  # max size reached
+                    curr_line = [word]
+                else:
+                    curr_line += [word]
+            line_imgs += [line_img(" ".join(curr_line))]  # \n --> new line
+            curr_line = []
+
+        blit_sequence = []
+        for idx, line_img in enumerate(line_imgs):
+            if idx * (self.line_spacing + self.font.size("")[1]) > self.rect.height:
+                print("overfull in y direction")  # TODO: work in progress
+                break
+            blit_sequence += [(line_img, pygame.Rect(0, idx * (self.line_spacing + self.font.size("")[1]), 0, 0))]
+        self.image.blits(blit_sequence)
 
 
 # initialization
@@ -72,9 +131,12 @@ FPS = 60
 # sprites
 sprites = pygame.sprite.LayeredUpdates()
 
-player = Player()
+#player = Player()
 background = Background(DISPLAY_SIZE)
-text = Text()
+#text = Text()
+mlt = MultiLineText(text="Depending on the type of background and antialiasing used, this returns different types of Surfaces. For performance reasons, it is good to know what type of image will be used.", rect=pygame.Rect(0,0,300,300))
+mlt2 = MultiLineText(text="Depending on the type of background and antialiasing used, this returns different types of Surfaces.\nFor performance reasons, it is good to know what type of image will be used.", rect=pygame.Rect(300,0,300,300), color=pygame.Color("red"), bg_color=pygame.Color("blue"))
+
 
 while True:  # Game Loop
     t = time.time()
