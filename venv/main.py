@@ -3,41 +3,57 @@ import time
 import pygame
 import pyphen
 import collections
+import random
+
 
 class SpriteInLGroup(pygame.sprite.Sprite):
-    def __init__(self, layerd_group: pygame.sprite.AbstractGroup = None, layer: int = 0, groups: list = []):
+    def __init__(self, layered_group: pygame.sprite.AbstractGroup = None, layer: int = 0, groups=None):
         """
-        :param layerd_group: the layered group for rendering all sprites that this sprite should be added to,
-               runtime-evaluated-default value of 'sprites' if that Group exists
+        :param layered_group: the layered group for rendering all rendered_sprites that this sprite should be added to,
+               runtime-evaluated-default value of 'rendered_sprites' if that Group exists
         :param layer: the layer the sprite should be in the layered group
         :param groups: list of aux. groups the sprite should be added to
         """
-        self.layered_group = globals()["sprites"] if "sprites" in list(globals().keys()) and layerd_group is None\
-            else layered_group   # default value that is evaluated at runtime (kind of jank !!)
+        if groups is None:
+            groups = []
+        self.layered_group = globals()["rendered_sprites"] if "rendered_sprites" in list(
+            globals().keys()) and layered_group is None \
+            else layered_group  # default value that is evaluated at runtime (kind of jank !! --> not really any more)
         try:
             assert self.layered_group is not None
         except AssertionError as err:
-            print() # FIXME: still needs to except
-            raise NameError("No variable named 'sprites' for the LayeredGroup and no LayeredGroup provided.") from err
+            print()  # FIXME: still needs to except
+            raise NameError(
+                "No variable named 'rendered_sprites' for the LayeredGroup and no LayeredGroup provided.") from err
         super().__init__()
         self.add_to_groups(self.layered_group, layer, groups)
 
-    def add_to_groups(self, layered_group=None, layer=0, groups=[]):
+    def add_to_groups(self, layered_group=None, layer=0, groups=None):
+        if groups is None:
+            groups = []
         if layered_group is not None:
             layered_group.add(self, layer=layer)
         for group in groups:
             group.add(self)
 
+    def on_click(self):
+        pass
+
 
 class Player(SpriteInLGroup):
-    def __init__(self):
-        super().__init__(layer=2) # is now __init__ of custom class
+    def __init__(self, groups=None):
+        if groups is None:
+            groups = []
+        super().__init__(layer=2, groups=groups)  # is now __init__ of custom class
         self.image = pygame.image.load("assets/images/snake_body.png")
-        self.rect = self.image.get_rect(topleft=(DISP_X//2, DISP_Y//2))
+        self.rect = self.image.get_rect(topleft=(DISP_X // 2, DISP_Y // 2))
 
     def update(self):
         if key_state[pygame.K_SPACE]:  # proof of concept
             self.rect.x -= 1
+
+    def on_click(self):
+        self.rect = pygame.Rect(random.randint(0, DISP_X-self.rect.w), random.randint(0, DISP_Y-self.rect.h), self.rect.w, self.rect.height)
 
 
 class Background(SpriteInLGroup):
@@ -46,18 +62,20 @@ class Background(SpriteInLGroup):
         self.bg_color = bg_color
         self.image = pygame.Surface(size)
         self.image.fill(bg_color)
-        self.rect = self.image.get_rect(topleft=(0,0))
+        self.rect = self.image.get_rect(topleft=(0, 0))
 
 
 class Text(SpriteInLGroup):
-    def __init__(self, text: str="Missing text", pos=(0,0), font: pygame.font.Font=None,
-                 color = (255,255,255), bg_color = (0,0,0), anti_aliased=True, layer=4):
-        super().__init__(layer=layer)  # high layer for now
+    def __init__(self, text: str = "Missing text", pos=(0, 0), font: pygame.font.Font = None,
+                 color=(255, 255, 255), bg_color=(0, 0, 0), anti_aliased=True, layer=4, groups=None):
+        if groups is None:
+            groups = []
+        super().__init__(layer=layer, groups=groups)  # high layer for now
         self.text = text
         self.font: pygame.font.Font = font or pygame.font.SysFont(None, 20)
-            # short-hand for: font = font if font is not None else pygame...()
-            # needs to be janky runtime-evaluated-default because font isn't init'ed yet
-        self.image: pygame.Surface = self.font.render(text, True, (0,0,0))
+        # short-hand for: font = font if font is not None else pygame...()
+        # needs to be janky runtime-evaluated-default because font isn't initiated yet
+        self.image: pygame.Surface = self.font.render(text, True, (0, 0, 0))
         self.rect: pygame.rect.Rect = self.image.get_rect(topleft=pos)
         self.color = color
         self.bg_color = bg_color
@@ -65,9 +83,16 @@ class Text(SpriteInLGroup):
 
 
 class MultiLineText(SpriteInLGroup):
-    max_line_whitespace = 0.2     # should be on a curve, not linear: the smaller width gets, the higher max_... should be, the larger width gets, the smaller max_... should be
-    def __init__(self, text: str="Missing text", rect: pygame.Rect=pygame.Rect(0,0,50,50), font: pygame.font.Font=None,
-                 line_spacing=None, alignment="center", color = (255,255,255), bg_color = (0,0,0), anti_aliased=True, layer=4, hyphen=None, warning=True):
+    max_line_whitespace = 0.2  # should be on a curve,
+
+    # not linear: the smaller width gets, the higher max_... should be,
+    # the larger width gets, the smaller max_... should be
+
+    def __init__(self, text: str = "Missing text", rect: pygame.Rect = pygame.Rect(0, 0, 50, 50),
+                 font: pygame.font.Font = None,
+                 line_spacing=None, alignment="center", color=(255, 255, 255), bg_color=(0, 0, 0), anti_aliased=True,
+                 layer=4, groups=None, hyphen=None, warning=True):
+        # TODO: clean up arguments
         """
         :param text: the text to be displayed in one long possibly multiline string
         :param rect: Rect obj to store top, left, width, height coords of the text box
@@ -77,19 +102,23 @@ class MultiLineText(SpriteInLGroup):
         :param layer: int for the layer in LayeredUpdates
         :param hyphen: the pyphen dic to be used to hyphenate, if left None, then tries to use
         """
-        # TODO: single character apearing, rect should it be max size? how should it handle positioning, a text box?,
-        #       alignment vert?, clickable
+        # TODO: textbox that shrinks borders to min, textbox that is clickable and gets new lines,
+        #  single character apearing, how should it handle positioning, a text box? to wrap the text with borders
+        #  alignment vert?, clickable
 
-        super().__init__(layer=layer)
+        if groups is None:
+            groups = []
+        super().__init__(layer=layer, groups=groups)
         self.text = text
         self.line_images = []
         self.current_line_number = 0
         self.font: pygame.font.Font = font or pygame.font.SysFont(None, 20)
         self.font_size = self.font.size("")[1]
-        self.line_spacing = line_spacing or self.font.get_linesize()//2
+        self.line_spacing = line_spacing or self.font.get_linesize() // 2
         self.possible_alignments = ["left", "center", "right"]
         if alignment not in self.possible_alignments:
-            raise ValueError((f"not recognised alignment '{alignment}', possible aligments are: " + "{}, "*len(possible_alignments)).format(*possible_alignments))
+            raise ValueError((f"not recognised alignment '{alignment}', possible aligments are: " + "{}, " * len(
+                self.possible_alignments)).format(*self.possible_alignments))
         self.alignment = alignment
         self.color = color
         self.bg_color = bg_color
@@ -106,19 +135,19 @@ class MultiLineText(SpriteInLGroup):
         self.image.fill(bg_color)
         self.rect = rect
 
-        # fill line_imgs
-        self.line_imgs = self.render_words(self.text.strip().split(" "))
-
+        # fill line_images
+        self.line_images = self.render_words(self.text.strip().split(" "))
 
         # calculate max number of lines that can be displayed at once
-        self.max_num_lines = 0                  # FIXME: isn't necessarily constant with constant font size
+        self.max_num_lines = 0  # FIXME: isn't necessarily constant with constant font size
         height = self.rect.height
         if height > self.font_size:
             height -= self.font_size
             self.max_num_lines = 1
         self.max_num_lines += height // (self.font_size + self.line_spacing)
 
-        if warning and self.max_num_lines < len(self.line_imgs):    # warning can be disables manually or by the child class
+        if warning and self.max_num_lines < len(
+                self.line_images):  # warning can be disables manually or by the child class
             print("overfull multilinetext in y direction")
 
         self.draw_lines_to_screen(self.get_next_lines())
@@ -126,15 +155,16 @@ class MultiLineText(SpriteInLGroup):
     def get_next_lines(self, reverse=False):
         # in the base class is only called once
         # in the child class on each update
-        return self.line_imgs[self.current_line_number-self.max_num_lines*(1 if reverse else 0):
-                              self.current_line_number+self.max_num_lines*(0 if reverse else 1)]
+        return self.line_images[self.current_line_number - self.max_num_lines * (1 if reverse else 0):
+                                self.current_line_number + self.max_num_lines * (0 if reverse else 1)]
 
     def draw_lines_to_screen(self, lines):
         # build blit_sequence and blit it to the image
         blit_sequence = []
         get_x = lambda rendered_line: 0  # this is left, if somehow alignment isn't one of the keywords raises error
         if self.alignment not in self.possible_alignments:
-            raise ValueError((f"not recognised alignment '{alignment}', possible aligments are: " + "{}, "*len(possible_alignments)).format(*possible_alignments))
+            raise ValueError((f"not recognised alignment '{self.alignment}', possible aligments are: " +
+                              "{}, " * len(self.possible_alignments)).format(*self.possible_alignments))
         if self.alignment == "center":
             get_x = lambda rendered_line: round((self.rect.w - rendered_line.get_rect().w) / 2)
         if self.alignment == "right":
@@ -143,81 +173,102 @@ class MultiLineText(SpriteInLGroup):
         for idx, rendered_line in enumerate(lines):
             x = get_x(rendered_line)
             y = idx * (self.line_spacing + self.font_size)
-            blit_sequence += [(rendered_line, pygame.Rect(x,y, 0,0))]
+            blit_sequence += [(rendered_line, pygame.Rect(x, y, 0, 0))]
         self.image.blits(blit_sequence)
 
     def update(self):
         pass
 
-    # TODO: textbox that shrinks borders to min, textbox that is clickable and gets new lines
-
-    #auxiliary methods
+    # auxiliary methods
     def too_long(self, line):
         return self.font.size(line)[0] > self.rect.width
 
     def too_short(self, line):
-        return self.font.size(line)[0] < self.rect.width*(1-self.max_line_whitespace) # TODO: line_whitespace on a curve
+        return self.font.size(line)[0] < self.rect.width * (
+                1 - self.max_line_whitespace)  # TODO: line_whitespace on a curve, see further up
 
     def render_words(self, words: list):
         if type(words) != collections.deque:
             words = collections.deque(words)
         render_line = lambda line: self.font.render(line, self.anti_aliased, self.color, self.bg_color)  # just a alias
-        line_imgs = []  # list of surfaces that each have a line of text rendered onto
+        line_images = []  # list of surfaces that each have a line of text rendered onto
         curr_line = []
 
         while len(words) > 0:
-            word = words.popleft()                              # take the newest word
+            word = words.popleft()  # take the newest word
             if word == "":
                 continue
             if "\n" == word:
-                line_imgs += [render_line(" ".join(curr_line))]
+                line_images += [render_line(" ".join(curr_line))]
                 curr_line = []
             elif "\n" in word:
-                i = word.index("\n")                            # look for newline chars
-                words.extendleft(reversed([word[:i], word[i:(i+1)], word[(i+1):]]))            # if found, re-add the words seperately to the queue
-            else:                                               # no newline char found
-                if self.too_long(" ".join(curr_line + [word])): # line is too long with extra word
-                    short = True if self.too_short(" ".join(curr_line)) else False     # and too short without
-                    line_to_render, left_overs = self.get_max_line(([] if short else curr_line) + [word], rest=curr_line if short else [])
+                i = word.index("\n")  # look for newline chars
+                words.extendleft(reversed(
+                    [word[:i], word[i:(i + 1)], word[(i + 1):]]))  # if found, re-add the words seperately to the queue
+            else:  # no newline char found
+                if self.too_long(" ".join(curr_line + [word])):  # line is too long with extra word
+                    short = True if self.too_short(" ".join(curr_line)) else False  # and too short without
+                    line_to_render, left_overs = self.get_max_line(([] if short else curr_line) + [word],
+                                                                   rest=curr_line if short else [])
                     # spits out maximum lenght of line, and the leftover words for the next line
-                    line_imgs += [render_line(line_to_render)]  # render line, add to the list
-                    words.extendleft(left_overs)                # save leftovers
-                    curr_line = []                              # start new line
+                    line_images += [render_line(line_to_render)]  # render line, add to the list
+                    words.extendleft(left_overs)  # save leftovers
+                    curr_line = []  # start new line
                 else:
-                    curr_line += [word]                         # line not long enough yet, add the word
-        line_imgs += [render_line(" ".join(curr_line))]
-        return line_imgs
+                    curr_line += [word]  # line not long enough yet, add the word
+        line_images += [render_line(" ".join(curr_line))]
+        return line_images
 
-    def get_max_line(self, to_be_split: list, rest=[]) -> (str, list):      # to_be_split is possibly a list of words, returns to_be_split+rest as string and list of words for next to_be_split
-        sep, end = " ", ""                                  # concatonate words with space, end with nothing
+    def get_max_line(self, to_be_split: list, rest=None) -> (str, list):
+        # to_be_split is possibly a list of words,
+        # returns to_be_split+rest as string and list of words for next to_be_split
+        if rest is None:
+            rest = []
+        sep, end = " ", ""  # concatenate words with space, end with nothing
         if type(to_be_split) is str:
-            to_be_split = [to_be_split]                                   # if you mistakenly pass it a single word
-        if len(to_be_split) == 1:                                  # only one element
+            to_be_split = [to_be_split]  # if you mistakenly pass it a single word
+        if len(to_be_split) == 1:  # only one element
             if "-" in to_be_split[0]:
-                hyphen_idx = to_be_split[0].index("-")             # word already hyphenated, split at hyphenation
-                split_word = self.get_max_line([to_be_split[0][:hyphen_idx]], rest)# -> so the list should be of the syllables
-                return split_word[0], [split_word[1][0] + to_be_split[0][(hyphen_idx + (1 if split_word[1][0] == "" else 0)):]]
+                hyphen_idx = to_be_split[0].index("-")  # word already hyphenated, split at hyphenation
+                split_word = self.get_max_line([to_be_split[0][:hyphen_idx]],
+                                               rest)  # -> so the list should be of the syllables
+                return split_word[0], [
+                    split_word[1][0] + to_be_split[0][(hyphen_idx + (1 if split_word[1][0] == "" else 0)):]]
                 # split_word[1] is a one-element list within it the rest of the first word as a string,
                 # take that and the rest of the word second word (if the first word empty, don't preserve hyphen)
             else:
-                to_be_split = self.hyphen.inserted(*to_be_split).split("-")# one element, no hyphens
-            sep, end = "", "-"                              # concatonate syllables, end with '-'
+                to_be_split = self.hyphen.inserted(*to_be_split).split("-")  # one element, no hyphens
+            sep, end = "", "-"  # concatenate syllables, end with '-'
         i = len(to_be_split)
-        while self.too_long(" ".join(rest) + " "*bool(rest) + sep.join(to_be_split[:i]) + end*bool(to_be_split[:i])):   # to_be_split including end (and possibly rest) is too long
-            if i == 0:                                      # reached first item
-                if sep == "":                               # case of syllables
+        while self.too_long(" ".join(rest) + " " * bool(rest) + sep.join(to_be_split[:i]) + end * bool(
+                to_be_split[:i])):  # to_be_split including end (and possibly rest) is too long
+            if i == 0:  # reached first item
+                if sep == "":  # case of syllables
                     print(f"syllable '{to_be_split[0]}' too long in font size {self.font.size('')[1]} "
                           f"for width of {self.rect.width}")
                     raise ValueError("too small Rect")
                 else:
-                    split_word = get_max_line(to_be_split[:1])     # single word is too long, split it by recursion
+                    split_word = self.get_max_line(to_be_split[:1])  # single word is too long, split it by recursion
                     return split_word[0], split_word[1] + to_be_split[1:]
                     # return the first syllable, and add the rest to the rest of the words
             i -= 1
-        return " ".join(rest) + " "*bool(rest) + sep.join(to_be_split[:i]) + end*bool(to_be_split[:i]), (to_be_split[i:] if sep == " " else ["".join(to_be_split[i:])])
+        return " ".join(rest) + " " * bool(rest) + sep.join(to_be_split[:i]) + end * bool(to_be_split[:i]), (
+            to_be_split[i:] if sep == " " else ["".join(to_be_split[i:])])
         # return if there is rest, add that to the front, and if so also extra whitespace, and
-        # the first items concatonated to a string, and the last as a list
+        # the first items concatenated to a string, and the last as a list
 
+
+class Mouse(pygame.sprite.Sprite):
+    def __init__(self, pos=(0, 0)):
+        super().__init__()
+        self.pos = pos
+        self.rect = pygame.Rect(pos, (1, 1))
+        # self.image = pygame.image.load("assets/images/snake_body.png")
+
+    def update(self, pos=None):
+        if pos is None:                     # in case one wants to render the mouse
+            pos = self.rect.x, self.rect.y
+        self.rect.x, self.rect.y = pos
 
 
 # initialization
@@ -238,35 +289,42 @@ clock = pygame.time.Clock()
 FPS = 60
 
 # sprites
-sprites = pygame.sprite.LayeredUpdates()
-
-#player = Player()
+rendered_sprites = pygame.sprite.LayeredUpdates()
+clickable = pygame.sprite.Group()
+mouse = Mouse()
+# rendered_sprites.add(mouse, layer=1)
+mouse_group = pygame.sprite.GroupSingle(mouse)
+player = Player()
 background = Background(DISPLAY_SIZE)
-hyphen_test = MultiLineText("Dampfschifffahrtsgesellschaft, Aufmerksamkeitsdefizit-Hyperaktivitätsstörung,\n ",#Kraftfahrzeug-Haftpflichtversicherung. Depending on the type of background and antialiasing used, this returns different types of Surfaces.\nFor performance reasons, it is good to know what type of image will be used.",
-                            rect=pygame.Rect(100,0, 100,480))
-
-#mlt2 = MultiLineText(text="Depending on the type of background and antialiasing used, this returns different types of Surfaces.\nFor performance reasons, it is good to know what type of image will be used.",
-#                     rect=pygame.Rect(300,0,300,300), color=pygame.Color("red"), bg_color=pygame.Color("blue"))
-#test = MultiLineText(text="Hello World", rect=pygame.Rect(0,0,5,5))
 
 while True:  # Game Loop
     t = time.time()
 
-    # events
+    # handle events
     for event in pygame.event.get():
         key_state = pygame.key.get_pressed()
         if event.type == pygame.QUIT or \
                 (key_state[pygame.K_LCTRL] or key_state[pygame.K_RCTRL]) and key_state[pygame.K_t]:
             pygame.quit()
             sys.exit()
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            mouse.update(event.pos)
+            mouse_collisions = pygame.sprite.groupcollide(rendered_sprites, mouse_group, False, False)
+            # get only top level sprite
+            clicked_sprite: SpriteInLGroup = max(mouse_collisions.keys(), key=rendered_sprites.get_layer_of_sprite)
+            clicked_sprite.on_click()
 
-    # update
-    sprites.update()
+    # update objects
+    rendered_sprites.update()
 
-    # draw sprites
-    sprites.draw(display)
+    # clear screen
+    display.fill(pygame.Color("black"))
 
+    # draw rendered_sprites
+    rendered_sprites.draw(display)
+
+    # update screen
     pygame.display.update()
-    if t:=time.time()-t > 1/FPS:
-        print(f"WARNING: current FPS is {1/t:.4f}")
+    if t := time.time() - t > 1 / FPS:
+        print(f"WARNING: current FPS is {1 / t:.4f}")
     clock.tick(FPS)
