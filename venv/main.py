@@ -4,6 +4,7 @@ import pygame
 import pyphen
 import collections
 import random
+import yaml
 
 
 class SpriteInLGroup(pygame.sprite.Sprite):
@@ -22,7 +23,6 @@ class SpriteInLGroup(pygame.sprite.Sprite):
         try:
             assert self.layered_group is not None
         except AssertionError as err:
-            print()  # FIXME: still needs to except
             raise NameError(
                 "No variable named 'rendered_sprites' for the LayeredGroup and no LayeredGroup provided.") from err
         super().__init__()
@@ -36,7 +36,7 @@ class SpriteInLGroup(pygame.sprite.Sprite):
         for group in groups:
             group.add(self)
 
-    def on_click(self):
+    def on_click(self, mouse):
         pass
 
 
@@ -52,8 +52,9 @@ class Player(SpriteInLGroup):
         if key_state[pygame.K_SPACE]:  # proof of concept
             self.rect.x -= 1
 
-    def on_click(self):
-        self.rect = pygame.Rect(random.randint(0, DISP_X-self.rect.w), random.randint(0, DISP_Y-self.rect.h), self.rect.w, self.rect.height)
+    def on_click(self, mouse):
+        self.rect = pygame.Rect(random.randint(0, DISP_X - self.rect.w), random.randint(0, DISP_Y - self.rect.h),
+                                self.rect.w, self.rect.height)
 
 
 class Background(SpriteInLGroup):
@@ -65,42 +66,74 @@ class Background(SpriteInLGroup):
         self.rect = self.image.get_rect(topleft=(0, 0))
 
 
+class TextSettings:
+    """
+    Wrapper-class for settings relating to text
+    """
+
+    def __init__(self, font: pygame.font.Font = None, line_spacing=None, alignment="center",
+                 color=(255, 255, 255), bg_color=(0, 0, 0), anti_aliased=True, hyphen=None):
+        # FIXME: fill out
+        """
+        :param font:
+        :param line_spacing:
+        :param alignment:
+        :param color:
+        :param bg_color:
+        :param anti_aliased:
+        :param hyphen:
+        """
+        if not pygame.font.get_init():
+            pygame.font.init()
+        self.font = font or pygame.font.SysFont(None, 20)
+        self.font_size = self.font.size("")[1]
+        self.line_spacing = line_spacing or self.font.get_linesize() // 2
+        self.possible_alignments = ["left", "center", "right"]
+        if alignment not in self.possible_alignments:
+            raise ValueError((f"not recognised alignment '{alignment}', possible aligments are: " + "{}, " * len(
+                self.possible_alignments)).format(*self.possible_alignments))
+        self.alignment = alignment
+
+        self.color = color
+        self.bg_color = bg_color
+
+        self.anti_aliased = anti_aliased
+        self.hyphen: pyphen.Pyphen = hyphen
+
+
 class Text(SpriteInLGroup):
-    def __init__(self, text: str = "Missing text", pos=(0, 0), font: pygame.font.Font = None,
-                 color=(255, 255, 255), bg_color=(0, 0, 0), anti_aliased=True, layer=4, groups=None):
+    """
+    Basic class for rendering text in a box
+    """
+
+    def __init__(self, text: str = "Missing text", rect: pygame.Rect = pygame.Rect(0, 0, 50, 50),
+                 text_settings: TextSettings = TextSettings(), layer=4, groups=None):
         if groups is None:
             groups = []
         super().__init__(layer=layer, groups=groups)  # high layer for now
         self.text = text
-        self.font: pygame.font.Font = font or pygame.font.SysFont(None, 20)
-        # short-hand for: font = font if font is not None else pygame...()
-        # needs to be janky runtime-evaluated-default because font isn't initiated yet
-        self.image: pygame.Surface = self.font.render(text, True, (0, 0, 0))
-        self.rect: pygame.rect.Rect = self.image.get_rect(topleft=pos)
-        self.color = color
-        self.bg_color = bg_color
-        self.anti_aliased = anti_aliased
+        self.text_settings = text_settings
+        self.image: pygame.Surface = self.text_settings.font.render(
+            text, text_settings.anti_aliased, text_settings.color, background=text_settings.bg_color)
+        self.rect: pygame.rect.Rect = rect
 
 
 class MultiLineText(SpriteInLGroup):
+    """
+    Class handling multiple line text
+    """
+
     max_line_whitespace = 0.2  # should be on a curve,
 
     # not linear: the smaller width gets, the higher max_... should be,
     # the larger width gets, the smaller max_... should be
 
     def __init__(self, text: str = "Missing text", rect: pygame.Rect = pygame.Rect(0, 0, 50, 50),
-                 font: pygame.font.Font = None,
-                 line_spacing=None, alignment="center", color=(255, 255, 255), bg_color=(0, 0, 0), anti_aliased=True,
-                 layer=4, groups=None, hyphen=None, warning=True):
-        # TODO: clean up arguments
+                 text_settings: TextSettings = TextSettings(), layer=4, groups=None, warning=True):
         """
         :param text: the text to be displayed in one long possibly multiline string
         :param rect: Rect obj to store top, left, width, height coords of the text box
-        :param font: Font obj to store font and font size info
-        :param bg_color: background color of whole text box
-        :param anti_aliased: True/False
         :param layer: int for the layer in LayeredUpdates
-        :param hyphen: the pyphen dic to be used to hyphenate, if left None, then tries to use
         """
         # TODO: textbox that shrinks borders to min, textbox that is clickable and gets new lines,
         #  single character apearing, how should it handle positioning, a text box? to wrap the text with borders
@@ -110,29 +143,12 @@ class MultiLineText(SpriteInLGroup):
             groups = []
         super().__init__(layer=layer, groups=groups)
         self.text = text
+        self.text_settings = text_settings
         self.line_images = []
         self.current_line_number = 0
-        self.font: pygame.font.Font = font or pygame.font.SysFont(None, 20)
-        self.font_size = self.font.size("")[1]
-        self.line_spacing = line_spacing or self.font.get_linesize() // 2
-        self.possible_alignments = ["left", "center", "right"]
-        if alignment not in self.possible_alignments:
-            raise ValueError((f"not recognised alignment '{alignment}', possible aligments are: " + "{}, " * len(
-                self.possible_alignments)).format(*self.possible_alignments))
-        self.alignment = alignment
-        self.color = color
-        self.bg_color = bg_color
-
-        self.anti_aliased = anti_aliased
-        self.hyphen: pyphen.Pyphen = globals()["hyphen"] if "hyphen" in list(globals().keys()) and hyphen is None \
-            else hyphen
-        try:
-            assert self.hyphen is not None
-        except AssertionError as err:
-            raise NameError("no variable named 'hyphen' for the pyphen dic and no dic provided") from err
 
         self.image = pygame.Surface((rect.w, rect.h))
-        self.image.fill(bg_color)
+        self.image.fill(self.text_settings.bg_color)
         self.rect = rect
 
         # fill line_images
@@ -141,13 +157,14 @@ class MultiLineText(SpriteInLGroup):
         # calculate max number of lines that can be displayed at once
         self.max_num_lines = 0  # FIXME: isn't necessarily constant with constant font size
         height = self.rect.height
-        if height > self.font_size:
-            height -= self.font_size
+        font_size = self.text_settings.font_size
+        if height > font_size:
+            height -= font_size
             self.max_num_lines = 1
-        self.max_num_lines += height // (self.font_size + self.line_spacing)
+        self.max_num_lines += height // (font_size + self.text_settings.line_spacing)
 
-        if warning and self.max_num_lines < len(
-                self.line_images):  # warning can be disables manually or by the child class
+        if warning and self.max_num_lines < len(self.line_images):
+            # warning can be disables manually or by the child class
             print("overfull multilinetext in y direction")
 
         self.draw_lines_to_screen(self.get_next_lines())
@@ -155,42 +172,59 @@ class MultiLineText(SpriteInLGroup):
     def get_next_lines(self, reverse=False):
         # in the base class is only called once
         # in the child class on each update
-        return self.line_images[self.current_line_number - self.max_num_lines * (1 if reverse else 0):
-                                self.current_line_number + self.max_num_lines * (0 if reverse else 1)]
+        if self.current_line_number < self.max_num_lines:
+            reverse = False               # FIXME: this is just a temporary workaround
+            self.current_line_number = 0
+        if reverse:
+            self.current_line_number -= self.max_num_lines
+            lines = self.line_images[self.current_line_number-self.max_num_lines:self.current_line_number]
+        else:
+            lines = self.line_images[self.current_line_number:self.current_line_number+self.max_num_lines]
+            self.current_line_number += self.max_num_lines
+        return lines
 
     def draw_lines_to_screen(self, lines):
         # build blit_sequence and blit it to the image
         blit_sequence = []
+        pos_align = self.text_settings.possible_alignments
+        align = self.text_settings.alignment
         get_x = lambda rendered_line: 0  # this is left, if somehow alignment isn't one of the keywords raises error
-        if self.alignment not in self.possible_alignments:
-            raise ValueError((f"not recognised alignment '{self.alignment}', possible aligments are: " +
-                              "{}, " * len(self.possible_alignments)).format(*self.possible_alignments))
-        if self.alignment == "center":
+        if align not in pos_align:
+            raise ValueError((f"not recognised alignment '{align}', possible aligments are: " +
+                              "{}, " * len(pos_align)).format(*pos_align))
+        if align == "center":
             get_x = lambda rendered_line: round((self.rect.w - rendered_line.get_rect().w) / 2)
-        if self.alignment == "right":
+        if align == "right":
             get_x = lambda rendered_line: self.rect.w - rendered_line.get_rect().w
 
         for idx, rendered_line in enumerate(lines):
             x = get_x(rendered_line)
-            y = idx * (self.line_spacing + self.font_size)
+            y = idx * (self.text_settings.line_spacing + self.text_settings.font_size)
             blit_sequence += [(rendered_line, pygame.Rect(x, y, 0, 0))]
         self.image.blits(blit_sequence)
 
     def update(self):
         pass
 
+    # def on_click(self, mouse_pos=None):
+    #    self.draw_lines_to_screen(self.get_next_lines())
+
     # auxiliary methods
     def too_long(self, line):
-        return self.font.size(line)[0] > self.rect.width
+        return self.text_settings.font.size(line)[0] > self.rect.width
 
     def too_short(self, line):
-        return self.font.size(line)[0] < self.rect.width * (
+        return self.text_settings.font.size(line)[0] < self.rect.width * (
                 1 - self.max_line_whitespace)  # TODO: line_whitespace on a curve, see further up
 
     def render_words(self, words: list):
         if type(words) != collections.deque:
             words = collections.deque(words)
-        render_line = lambda line: self.font.render(line, self.anti_aliased, self.color, self.bg_color)  # just a alias
+
+        def render_line(line):
+            return self.text_settings.font.render(line, self.text_settings.anti_aliased,
+                                                  self.text_settings.color, self.text_settings.bg_color)  # just a alias
+
         line_images = []  # list of surfaces that each have a line of text rendered onto
         curr_line = []
 
@@ -204,7 +238,7 @@ class MultiLineText(SpriteInLGroup):
             elif "\n" in word:
                 i = word.index("\n")  # look for newline chars
                 words.extendleft(reversed(
-                    [word[:i], word[i:(i + 1)], word[(i + 1):]]))  # if found, re-add the words seperately to the queue
+                    [word[:i], word[i:(i + 1)], word[(i + 1):]]))  # if found, re-add the words separately to the queue
             else:  # no newline char found
                 if self.too_long(" ".join(curr_line + [word])):  # line is too long with extra word
                     short = True if self.too_short(" ".join(curr_line)) else False  # and too short without
@@ -237,14 +271,14 @@ class MultiLineText(SpriteInLGroup):
                 # split_word[1] is a one-element list within it the rest of the first word as a string,
                 # take that and the rest of the word second word (if the first word empty, don't preserve hyphen)
             else:
-                to_be_split = self.hyphen.inserted(*to_be_split).split("-")  # one element, no hyphens
+                to_be_split = self.text_settings.hyphen.inserted(*to_be_split).split("-")  # one element, no hyphens
             sep, end = "", "-"  # concatenate syllables, end with '-'
         i = len(to_be_split)
         while self.too_long(" ".join(rest) + " " * bool(rest) + sep.join(to_be_split[:i]) + end * bool(
                 to_be_split[:i])):  # to_be_split including end (and possibly rest) is too long
             if i == 0:  # reached first item
                 if sep == "":  # case of syllables
-                    print(f"syllable '{to_be_split[0]}' too long in font size {self.font.size('')[1]} "
+                    print(f"syllable '{to_be_split[0]}' too long in font size {self.text_settings.font_size} "
                           f"for width of {self.rect.width}")
                     raise ValueError("too small Rect")
                 else:
@@ -258,25 +292,83 @@ class MultiLineText(SpriteInLGroup):
         # the first items concatenated to a string, and the last as a list
 
 
+class TextBoxNext(SpriteInLGroup):
+    """
+    Class to hold a multilinetext obj, have padding, and handle clicks by displaying the next line
+    """
+
+    def __init__(self, text: str = "Missing text", rect: pygame.Rect = pygame.Rect(0, 0, 50, 50),
+                 text_settings: TextSettings = TextSettings(), padding=4, border=3, border_col=pygame.Color("grey"),
+                 layer=4, groups=None):
+        """
+        :param text:
+        :param rect:
+        :param text_settings:
+        :param padding:
+        :param layer:
+        :param groups:
+        """
+        if groups is None:
+            groups = []
+        super().__init__(layer=layer, groups=groups)
+        self.text = text
+        self.text_settings = text_settings
+        self.padding = padding
+        self.border = border
+        self.offset = padding + border
+        self.border_col = border_col
+        self.rect = pygame.Rect(rect.x, rect.y, rect.w + 2 * self.offset, rect.h + 2 * self.offset)
+        # to have consistent default values for text box sizes
+        self.mlt = MultiLineText(text, rect=pygame.Rect(self.offset, self.offset,
+                                                        self.rect.w - 2 * self.offset, self.rect.h - 2 * self.offset),
+                                 text_settings=text_settings)
+        self.image = pygame.Surface((self.rect.w, self.rect.h))
+        self.image.fill(self.border_col)  # fill with border
+        self.image.fill(self.text_settings.bg_color,
+                        pygame.Rect(self.border, self.border, self.rect.w - 2 * self.border,
+                                    self.rect.h - 2 * self.border))
+        # self.clear()
+        self.image.blit(self.mlt.image, self.mlt.rect)  # blit text onto image
+        # --> this area is only able to be overridden by overriding self.mlt.image
+
+    def on_click(self, mouse):
+        if mouse.button not in {pygame.BUTTON_LEFT, pygame.BUTTON_RIGHT}:
+            return
+        reverse = False
+        if mouse.button == pygame.BUTTON_RIGHT:
+            reverse = True
+        self.clear()
+        self.mlt.draw_lines_to_screen(self.mlt.get_next_lines(reverse))   # --> changes self.image
+
+    def clear(self):
+        self.mlt.image.fill(self.text_settings.bg_color)
+
+
 class Mouse(pygame.sprite.Sprite):
-    def __init__(self, pos=(0, 0)):
+    def __init__(self, pos=(0, 0), button=None):
         super().__init__()
         self.pos = pos
+        self.button = button
         self.rect = pygame.Rect(pos, (1, 1))
-        # self.image = pygame.image.load("assets/images/snake_body.png")
 
-    def update(self, pos=None):
-        if pos is None:                     # in case one wants to render the mouse
+    def update(self, pos, button):
+        if pos is None:  # in case one wants to render the mouse
             pos = self.rect.x, self.rect.y
+        if button is None:
+            button = self.button
         self.rect.x, self.rect.y = pos
+        self.button = button
 
 
 # initialization
 pygame.init()
 pygame.font.init()
 pygame.mixer.init()
-text_language = "de_DE"  # TODO: get from text files
+text_language = "de_DE"  # TODO: get from text files/ config files
 hyphen = pyphen.Pyphen(lang=text_language)
+with open("assets/text/testing_text.yml") as file:
+    test_text = yaml.load(file.read())["random_text_with_newline"]  # FIXME: really slow loading
+# TODO: loading screen?
 
 # colors are addressable as strings see https://github.com/pygame/pygame/blob/master/src_py/colordict.py
 
@@ -291,11 +383,13 @@ FPS = 60
 # sprites
 rendered_sprites = pygame.sprite.LayeredUpdates()
 clickable = pygame.sprite.Group()
+text_settings = TextSettings(hyphen=hyphen)
+
 mouse = Mouse()
-# rendered_sprites.add(mouse, layer=1)
 mouse_group = pygame.sprite.GroupSingle(mouse)
 player = Player()
 background = Background(DISPLAY_SIZE)
+text = TextBoxNext(text=test_text, text_settings=text_settings)
 
 while True:  # Game Loop
     t = time.time()
@@ -308,11 +402,11 @@ while True:  # Game Loop
             pygame.quit()
             sys.exit()
         if event.type == pygame.MOUSEBUTTONDOWN:
-            mouse.update(event.pos)
+            mouse.update(event.pos, event.button)
             mouse_collisions = pygame.sprite.groupcollide(rendered_sprites, mouse_group, False, False)
             # get only top level sprite
             clicked_sprite: SpriteInLGroup = max(mouse_collisions.keys(), key=rendered_sprites.get_layer_of_sprite)
-            clicked_sprite.on_click()
+            clicked_sprite.on_click(mouse)
 
     # update objects
     rendered_sprites.update()
