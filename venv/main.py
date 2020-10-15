@@ -17,6 +17,7 @@ class SpriteInLGroup(pygame.sprite.Sprite):
         """
         if groups is None:
             groups = []
+        self.layer = layer
         self.layered_group = globals()["rendered_sprites"] if "rendered_sprites" in list(
             globals().keys()) and layered_group is None \
             else layered_group  # default value that is evaluated at runtime (kind of jank !! --> not really any more)
@@ -44,6 +45,7 @@ class Player(SpriteInLGroup):
     def __init__(self, groups=None):
         if groups is None:
             groups = []
+        self.layer = 2
         super().__init__(layer=2, groups=groups)  # is now __init__ of custom class
         self.image = pygame.image.load("assets/images/snake_body.png")
         self.rect = self.image.get_rect(topleft=(DISP_X // 2, DISP_Y // 2))
@@ -59,6 +61,7 @@ class Player(SpriteInLGroup):
 
 class Background(SpriteInLGroup):
     def __init__(self, size=(100, 100), bg_color=pygame.Color("white")):
+        self.layer = -1
         super().__init__(layer=-1)  # behind everything
         self.bg_color = bg_color
         self.image = pygame.Surface(size)
@@ -73,7 +76,7 @@ class TextSettings:
 
     def __init__(self, font: pygame.font.Font = None, line_spacing=None, alignment="center",
                  color=(255, 255, 255), bg_color=(0, 0, 0), anti_aliased=True, hyphen=None):
-        # FIXME: fill out
+        # FIXME: fill me out
         """
         :param font:
         :param line_spacing:
@@ -110,6 +113,7 @@ class Text(SpriteInLGroup):
                  text_settings: TextSettings = TextSettings(), layer=4, groups=None):
         if groups is None:
             groups = []
+        self.layer = layer
         super().__init__(layer=layer, groups=groups)  # high layer for now
         self.text = text
         self.text_settings = text_settings
@@ -139,6 +143,7 @@ class MultiLineText(SpriteInLGroup):
         #  single character apearing, how should it handle positioning, a text box? to wrap the text with borders
         #  alignment vert?, clickable
 
+        self.layer = layer
         if groups is None:
             groups = []
         super().__init__(layer=layer, groups=groups)
@@ -172,14 +177,14 @@ class MultiLineText(SpriteInLGroup):
     def get_next_lines(self, reverse=False):
         # in the base class is only called once
         # in the child class on each update
-        if self.current_line_number < self.max_num_lines:
-            reverse = False               # FIXME: this is just a temporary workaround
-            self.current_line_number = 0
+        #if self.current_line_number < self.max_num_lines:
+        #    reverse = False  # FIXME: this is just a temporary workaround
+        #    self.current_line_number = 0
         if reverse:
             self.current_line_number -= self.max_num_lines
-            lines = self.line_images[self.current_line_number-self.max_num_lines:self.current_line_number]
+            lines = self.line_images[self.current_line_number - self.max_num_lines:self.current_line_number]
         else:
-            lines = self.line_images[self.current_line_number:self.current_line_number+self.max_num_lines]
+            lines = self.line_images[self.current_line_number:self.current_line_number + self.max_num_lines]
             self.current_line_number += self.max_num_lines
         return lines
 
@@ -292,14 +297,14 @@ class MultiLineText(SpriteInLGroup):
         # the first items concatenated to a string, and the last as a list
 
 
-class TextBoxNext(SpriteInLGroup):
+class TextBox(SpriteInLGroup):
     """
-    Class to hold a multilinetext obj, have padding, and handle clicks by displaying the next line
+    Class to hold a multilinetext obj, have padding
     """
 
-    def __init__(self, text: str = "Missing text", rect: pygame.Rect = pygame.Rect(0, 0, 50, 50),
+    def __init__(self, text: str = "Missing text", rect: pygame.Rect = None,
                  text_settings: TextSettings = TextSettings(), padding=4, border=3, border_col=pygame.Color("grey"),
-                 layer=4, groups=None):
+                 layer=4, groups=None, warning=False):
         """
         :param text:
         :param rect:
@@ -310,6 +315,7 @@ class TextBoxNext(SpriteInLGroup):
         """
         if groups is None:
             groups = []
+        self.layer = layer
         super().__init__(layer=layer, groups=groups)
         self.text = text
         self.text_settings = text_settings
@@ -317,19 +323,30 @@ class TextBoxNext(SpriteInLGroup):
         self.border = border
         self.offset = padding + border
         self.border_col = border_col
-        self.rect = pygame.Rect(rect.x, rect.y, rect.w + 2 * self.offset, rect.h + 2 * self.offset)
-        # to have consistent default values for text box sizes
+        if rect is None:
+            rect = pygame.Rect(0, 0, 50 + 2 * self.offset, 50 + 2 * self.offset)
+            # to have consistent default values for text box sizes
+        self.rect = rect
         self.mlt = MultiLineText(text, rect=pygame.Rect(self.offset, self.offset,
                                                         self.rect.w - 2 * self.offset, self.rect.h - 2 * self.offset),
-                                 text_settings=text_settings)
+                                 text_settings=text_settings, warning=warning)
         self.image = pygame.Surface((self.rect.w, self.rect.h))
         self.image.fill(self.border_col)  # fill with border
         self.image.fill(self.text_settings.bg_color,
                         pygame.Rect(self.border, self.border, self.rect.w - 2 * self.border,
                                     self.rect.h - 2 * self.border))
-        # self.clear()
         self.image.blit(self.mlt.image, self.mlt.rect)  # blit text onto image
         # --> this area is only able to be overridden by overriding self.mlt.image
+
+    def clear(self):
+        self.mlt.image.fill(self.text_settings.bg_color)
+
+
+class TextBoxClick(TextBox):
+    def __init__(self, text: str = "Missing text", rect: pygame.Rect = pygame.Rect(0, 0, 50, 50),
+                 text_settings: TextSettings = TextSettings(), padding=4, border=3, border_col=pygame.Color("grey"),
+                 layer=4, groups=None):
+        super().__init__(text, rect, text_settings, padding, border, border_col, layer, groups, warning=False)
 
     def on_click(self, mouse):
         if mouse.button not in {pygame.BUTTON_LEFT, pygame.BUTTON_RIGHT}:
@@ -338,10 +355,58 @@ class TextBoxNext(SpriteInLGroup):
         if mouse.button == pygame.BUTTON_RIGHT:
             reverse = True
         self.clear()
-        self.mlt.draw_lines_to_screen(self.mlt.get_next_lines(reverse))   # --> changes self.image
+        self.mlt.draw_lines_to_screen(self.mlt.get_next_lines(reverse))  # --> changes self.image
 
-    def clear(self):
-        self.mlt.image.fill(self.text_settings.bg_color)
+
+class TextBoxButton(TextBox):
+    def __init__(self, text: str = "Missing text", button_text: str = "Button", rect: pygame.Rect = None,
+                 text_settings: TextSettings = TextSettings(), padding=4, border=3, text_height=50, border_col=pygame.Color("grey"),
+                 layer=4, groups=None):
+        super().__init__(text, rect, text_settings, padding, border, border_col, layer, groups)
+        self.button = Button(self, "next", rect=pygame.Rect(self.rect.x+self.offset, self.rect.y+self.offset+self.text_height+self.padding, 40 + 2 * 3, 20 + 2 * 3), padding=2, border=1, border_col=pygame.Color("white"))
+        if rect is None:
+            rect = pygame.Rect(0, 0, 50 + 2 * self.offset, text_height + 2 * self.offset+2*self.padding+self.button.rect.h)
+            # to have consistent default values for text box sizes
+        self.rect = rect
+        self.text_height = text_height
+        #self.mlt = MultiLineText(text,pygame.Rect(self.rect.x+self.offset, self.rect.y+self.offset, self.rect.w-2*self.offset, self.text_height), text_settings=text_settings)
+
+    def on_button(self, id_str, mouse):
+        if id_str == "next":
+            print(f"at {mouse.pos} position, button {id_str} was clicked and is getting new lines")
+
+
+class Button(SpriteInLGroup):
+    def __init__(self, container, id_str="", text: str = "Button", rect: pygame.Rect = None,
+                 text_settings: TextSettings = TextSettings(), padding=4, border=3, border_col=pygame.Color("black"),
+                 layer=4, groups=None, func=lambda: None):
+        self.container: SpriteInLGroup = container
+        if type(container) == SpriteInLGroup:
+            try:
+                assert hasattr(container, "on_button") and callable(getattr(container, "on_button"))
+            except AssertionError as err:
+                raise TypeError("container needs a 'on_button(id_str, mouse)' function defined") from err
+        if groups is None:
+            groups = []
+        self.layer = max(layer, self.container.layer + 1)
+        super().__init__(layer=self.layer, groups=groups)
+        self.id_str = id_str  # this is an id that is internal to the container sprite
+        self.text: str = text
+        self.text_settings: TextSettings = text_settings
+        self.padding: int = padding
+        self.border: int = border
+        self.offset: int = padding + border
+        self.border_col: pygame.Color = border_col
+        if rect is None:
+            rect = pygame.Rect(0, 0, 40 + 2 * self.offset, 20 + 2 * self.offset)
+        self.rect = rect
+        self.textbox = TextBox(self.text, self.rect, self.text_settings, self.padding, self.border, self.border_col, self.layer)
+        self.func = func
+
+    def on_click(self, mouse):
+        if self.container is None:  # containerless button
+            self.func()             # then do the provided func
+        self.container.on_button(self.id_str, mouse)    # was type checked in __init__
 
 
 class Mouse(pygame.sprite.Sprite):
@@ -389,7 +454,7 @@ mouse = Mouse()
 mouse_group = pygame.sprite.GroupSingle(mouse)
 player = Player()
 background = Background(DISPLAY_SIZE)
-text = TextBoxNext(text=test_text, text_settings=text_settings)
+text = TextBoxClick(text="hello world my name is textboxclick", text_settings=text_settings)
 
 while True:  # Game Loop
     t = time.time()
